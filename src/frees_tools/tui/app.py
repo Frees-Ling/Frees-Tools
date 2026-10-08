@@ -10,6 +10,7 @@ from typing import Callable
 from textual import on, work
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.css.query import NoMatches
 from textual.screen import ModalScreen
 from textual.widgets import (
     Button,
@@ -558,7 +559,12 @@ class FreesToolsApp(App):
         return self.main_query(f"#{field}", Checkbox).value
 
     def status(self, message: str) -> None:
-        self.main_query("#status", Static).update(message)
+        try:
+            widget = self.main_query("#status", Static)
+        except NoMatches:
+            return
+        if widget.is_mounted:
+            widget.update(message)
 
     def error(self, error: Exception) -> None:
         self.status(f"操作失败：{error}")
@@ -574,11 +580,18 @@ class FreesToolsApp(App):
     def refresh_tasks(self) -> None:
         if getattr(self, "_closing", True):
             return
-        tables = list(self._main_screen.query("#task-table"))
-        if not tables or not tables[0].is_mounted:
+        # Children disappear individually during screen teardown, before App.Unmount.
+        # Capture every dependent widget before polling, and use only these references.
+        try:
+            table = self.main_query("#task-table", DataTable)
+            summary = self.main_query("#dashboard-summary", Static)
+            progress = self.main_query("#task-progress", ProgressBar)
+            selected = self.main_query("#task-selected", Static)
+        except NoMatches:
+            return
+        if not all(widget.is_mounted for widget in (table, summary, progress, selected)):
             return
         rows = self.manager.list()
-        table = self.main_query("#task-table", DataTable)
         values = [
             (
                 str(row["id"]),
@@ -593,7 +606,7 @@ class FreesToolsApp(App):
             for row in rows
         ]
         self.update_table(table, values, self.task_id)
-        self.main_query("#dashboard-summary", Static).update(
+        summary.update(
             f"任务总数：{len(rows)}\n"
             + "  ".join(
                 f"{state}: {sum(r['status'] == state for r in rows)}"
@@ -602,10 +615,8 @@ class FreesToolsApp(App):
         )
         chosen = next((r for r in rows if r["id"] == self.task_id), None)
         if chosen:
-            self.main_query("#task-progress", ProgressBar).update(
-                progress=chosen.get("progress", 0)
-            )
-            self.main_query("#task-selected", Static).update(
+            progress.update(progress=chosen.get("progress", 0))
+            selected.update(
                 f"{chosen['id']} · {chosen['status']}\n{chosen.get('error') or chosen.get('output') or ''}"
                 + "\n"
                 + json.dumps(chosen.get("details", {}), ensure_ascii=False)
@@ -935,7 +946,12 @@ class FreesToolsApp(App):
     def refresh_torrents(self) -> None:
         if getattr(self, "_closing", True) or not self.is_running:
             return
-        page = self.call_from_thread(lambda: self.main_query("#pages", ContentSwitcher).current)
+        try:
+            page = self.call_from_thread(self.poll_page)
+        except RuntimeError:
+            if not self.is_running:
+                return
+            raise
         if page not in {"torrent", "tasks"}:
             return
         if page == "tasks":
@@ -949,9 +965,25 @@ class FreesToolsApp(App):
         except Exception as error:
             self.call_from_thread(self.status, str(error))
 
+    def poll_page(self) -> str | None:
+        if getattr(self, "_closing", True):
+            return None
+        try:
+            pages = self.main_query("#pages", ContentSwitcher)
+        except NoMatches:
+            return None
+        return pages.current if pages.is_mounted else None
+
     def render_torrents(self, rows: list[dict]) -> None:
+        if getattr(self, "_closing", True):
+            return
+        try:
+            table = self.main_query("#torrent-table", DataTable)
+        except NoMatches:
+            return
+        if not table.is_mounted:
+            return
         self.torrent_rows = rows
-        table = self.main_query("#torrent-table", DataTable)
         values = []
         for row in rows:
             identity = str(row.get("id") or row.get("gid"))

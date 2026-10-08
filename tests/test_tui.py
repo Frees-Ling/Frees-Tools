@@ -2,6 +2,8 @@
 
 import asyncio
 
+import pytest
+
 from PIL import Image
 from textual.widgets import ContentSwitcher, Input, ListView, Static
 
@@ -332,4 +334,26 @@ async def test_image_preflight_rejects_samefile_alias_and_case_collisions(tmp_pa
         assert source.read_bytes() == alias.read_bytes() == original_bytes
         assert not manager.list()
         assert not (tmp_path / "new-output").exists()
+    manager.close()
+
+
+@pytest.mark.parametrize("missing", ["#dashboard-summary", "#task-progress", "#task-selected"])
+async def test_polling_during_partial_screen_teardown(tmp_path, monkeypatch, missing):
+    """A timer may run after individual children disappear but before App.Unmount."""
+    from textual.widgets import DataTable
+
+    monkeypatch.setattr("frees_tools.core.tasks.STATE_DIR", tmp_path)
+    manager = TaskManager()
+    app = FreesToolsApp(manager)
+    async with app.run_test(size=(120, 55)) as pilot:
+        await app.main_query(missing).remove()
+        assert app.main_query("#task-table", DataTable).is_mounted
+        app.refresh_tasks()
+        await app.main_query("#torrent-table").remove()
+        app.render_torrents([])
+        await app.main_query("#status").remove()
+        app.status("Late worker notification")
+        await app.main_query("#pages").remove()
+        assert app.poll_page() is None
+        await pilot.pause()
     manager.close()
