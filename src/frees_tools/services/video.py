@@ -56,6 +56,8 @@ def info(path: str | Path) -> dict:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=30,
         )
         if result.returncode:

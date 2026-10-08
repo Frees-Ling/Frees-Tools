@@ -463,34 +463,50 @@ class FreesToolsApp(App):
         yield Static("就绪", id="status", markup=False)
         yield Footer()
 
+    def main_query(self, selector, expect_type=None):
+        return self._main_screen.query_one(selector, expect_type)
+
     def on_mount(self) -> None:
-        self.query_one("#task-table", DataTable).add_columns(
+        self._main_screen = self.screen
+        self._closing = False
+        self.main_query("#task-table", DataTable).add_columns(
             "ID", "模块", "状态", "进度", "输出 / 错误"
         )
-        self.query_one("#torrent-table", DataTable).add_columns(
+        self.main_query("#torrent-table", DataTable).add_columns(
             "ID", "名称", "状态", "进度", "下载速度"
         )
-        self.set_interval(0.4, self.refresh_tasks)
-        self.set_interval(3, self.refresh_torrents)
+        self.refresh_tasks()
+        self._task_timer = self.set_interval(0.4, self.refresh_tasks)
+        self._torrent_timer = self.set_interval(3, self.refresh_torrents)
         self.theme = self.config.get("theme", "textual-dark")
         self.resize_logo(self.size.width)
 
+    def on_unmount(self) -> None:
+        self._closing = True
+        for timer in (getattr(self, "_task_timer", None), getattr(self, "_torrent_timer", None)):
+            if timer is not None:
+                timer.stop()
+
     def on_resize(self, event) -> None:
-        if self.is_mounted:
+        if (
+            self.is_mounted
+            and hasattr(self, "_main_screen")
+            and not getattr(self, "_closing", True)
+        ):
             self.resize_logo(event.size.width)
 
     def resize_logo(self, width: int) -> None:
-        self.query_one("#logo", Static).update(
+        self.main_query("#logo", Static).update(
             (LOGO if width >= 90 else "FREES TOOLS") + "\n v0.1.0 | Your Ultimate Terminal Toolbox"
         )
-        self.query_one("#nav").styles.width = 28 if width >= 85 else 19
+        self.main_query("#nav").styles.width = 28 if width >= 85 else 19
 
     @on(ListView.Selected, "#nav")
     def navigate(self, event: ListView.Selected) -> None:
         self.show_page(str(event.item.id).removeprefix("nav-"))
 
     def show_page(self, page: str) -> None:
-        self.query_one("#pages", ContentSwitcher).current = page
+        self.main_query("#pages", ContentSwitcher).current = page
         if page == "torrent":
             self.refresh_torrents()
 
@@ -531,16 +547,16 @@ class FreesToolsApp(App):
         self.show_page("dashboard")
 
     def value(self, field: str) -> str:
-        return self.query_one(f"#{field}", Input).value.strip()
+        return self.main_query(f"#{field}", Input).value.strip()
 
     def selected_value(self, field: str) -> str:
-        return str(self.query_one(f"#{field}", Select).value)
+        return str(self.main_query(f"#{field}", Select).value)
 
     def checked(self, field: str) -> bool:
-        return self.query_one(f"#{field}", Checkbox).value
+        return self.main_query(f"#{field}", Checkbox).value
 
     def status(self, message: str) -> None:
-        self.query_one("#status", Static).update(message)
+        self.main_query("#status", Static).update(message)
 
     def error(self, error: Exception) -> None:
         self.status(f"操作失败：{error}")
@@ -554,22 +570,28 @@ class FreesToolsApp(App):
         self.refresh_tasks()
 
     def refresh_tasks(self) -> None:
+        if getattr(self, "_closing", True):
+            return
+        tables = list(self._main_screen.query("#task-table"))
+        if not tables or not tables[0].is_mounted:
+            return
         rows = self.manager.list()
-        table = self.query_one("#task-table", DataTable)
-        cursor = table.cursor_row
-        table.clear()
-        for row in rows:
-            table.add_row(
-                str(row["id"])[:8],
-                str(row["module"]),
-                str(row["status"]),
-                f"{row.get('progress', 0):.0f}%",
-                str(row.get("error") or row.get("output") or ""),
-                key=str(row["id"]),
+        table = self.main_query("#task-table", DataTable)
+        values = [
+            (
+                str(row["id"]),
+                (
+                    str(row["id"])[:8],
+                    str(row["module"]),
+                    str(row["status"]),
+                    f"{row.get('progress', 0):.0f}%",
+                    str(row.get("error") or row.get("output") or ""),
+                ),
             )
-        if rows:
-            table.move_cursor(row=min(cursor, len(rows) - 1))
-        self.query_one("#dashboard-summary", Static).update(
+            for row in rows
+        ]
+        self.update_table(table, values, self.task_id)
+        self.main_query("#dashboard-summary", Static).update(
             f"任务总数：{len(rows)}\n"
             + "  ".join(
                 f"{state}: {sum(r['status'] == state for r in rows)}"
@@ -578,20 +600,51 @@ class FreesToolsApp(App):
         )
         chosen = next((r for r in rows if r["id"] == self.task_id), None)
         if chosen:
-            self.query_one("#task-progress", ProgressBar).update(progress=chosen.get("progress", 0))
-            self.query_one("#task-selected", Static).update(
+            self.main_query("#task-progress", ProgressBar).update(
+                progress=chosen.get("progress", 0)
+            )
+            self.main_query("#task-selected", Static).update(
                 f"{chosen['id']} · {chosen['status']}\n{chosen.get('error') or chosen.get('output') or ''}"
                 + "\n"
                 + json.dumps(chosen.get("details", {}), ensure_ascii=False)
             )
 
+    @staticmethod
+    def update_table(
+        table: DataTable, values: list[tuple[str, tuple]], selected: str | None
+    ) -> None:
+        """Update rows in place so polling never invalidates the current selection."""
+        identities = {identity for identity, _ in values}
+        existing = {str(key.value) for key in table.rows}
+        for identity in existing - identities:
+            table.remove_row(identity)
+        columns = list(table.columns)
+        for identity, cells in values:
+            if identity not in existing:
+                table.add_row(*cells, key=identity)
+            else:
+                for column, cell in zip(columns, cells):
+                    table.update_cell(identity, column, cell, update_width=True)
+        if selected in identities:
+            table.move_cursor(row=table.get_row_index(selected))
+
+    @staticmethod
+    def current_row_id(table: DataTable) -> str | None:
+        if 0 <= table.cursor_row < table.row_count:
+            return str(table.ordered_rows[table.cursor_row].key.value)
+        return None
+
     @on(DataTable.RowHighlighted, "#task-table")
     def task_highlight(self, event: DataTable.RowHighlighted) -> None:
-        self.task_id = str(event.row_key.value)
+        identity = str(event.row_key.value)
+        if identity == self.current_row_id(event.data_table):
+            self.task_id = identity
 
     @on(DataTable.RowHighlighted, "#torrent-table")
     def torrent_highlight(self, event: DataTable.RowHighlighted) -> None:
-        self.torrent_id = str(event.row_key.value)
+        identity = str(event.row_key.value)
+        if identity == self.current_row_id(event.data_table):
+            self.torrent_id = identity
 
     def browse(self, target: str, multiple: bool = False, directory: bool = False) -> None:
         def chosen(paths: list[str] | None) -> None:
@@ -603,14 +656,14 @@ class FreesToolsApp(App):
             else:
                 if target == "image-source":
                     self.image_paths = paths
-                self.query_one(f"#{target}", Input).value = paths[0]
+                self.main_query(f"#{target}", Input).value = paths[0]
                 self.status(f"已选择 {len(paths)} 个项目")
 
         self.push_screen(FileBrowser(multiple=multiple, directory=directory), chosen)
 
     @work
     async def refresh_pdf_list(self) -> None:
-        listing = self.query_one("#pdf-inputs", ListView)
+        listing = self.main_query("#pdf-inputs", ListView)
         await listing.clear()
         await listing.extend(
             ListItem(Label(f"{i + 1}. [{Path(p).suffix.lstrip('.').upper()}] {p}", markup=False))
@@ -622,7 +675,7 @@ class FreesToolsApp(App):
         path = self.value("pdf-path")
         if path:
             self.pdf_paths.append(str(Path(path).expanduser()))
-            self.query_one("#pdf-path", Input).value = ""
+            self.main_query("#pdf-path", Input).value = ""
             self.refresh_pdf_list()
 
     @on(Button.Pressed)
@@ -648,7 +701,7 @@ class FreesToolsApp(App):
             elif name == "pdf-start":
                 self.start_pdf()
             elif name in {"pdf-up", "pdf-down", "pdf-remove"}:
-                listing = self.query_one("#pdf-inputs", ListView)
+                listing = self.main_query("#pdf-inputs", ListView)
                 index = listing.index
                 if index is not None and index < len(self.pdf_paths):
                     other = index + (-1 if name == "pdf-up" else 1)
@@ -666,7 +719,7 @@ class FreesToolsApp(App):
                     self.value(f"{module}-source")
                     if module != "pdf"
                     else (
-                        self.pdf_paths[self.query_one("#pdf-inputs", ListView).index or 0]
+                        self.pdf_paths[self.main_query("#pdf-inputs", ListView).index or 0]
                         if self.pdf_paths
                         else ""
                     )
@@ -857,7 +910,9 @@ class FreesToolsApp(App):
 
     @work(thread=True, exclusive=True, group="torrent-refresh")
     def refresh_torrents(self) -> None:
-        page = self.call_from_thread(lambda: self.query_one("#pages", ContentSwitcher).current)
+        if getattr(self, "_closing", True) or not self.is_running:
+            return
+        page = self.call_from_thread(lambda: self.main_query("#pages", ContentSwitcher).current)
         if page not in {"torrent", "tasks"}:
             return
         if page == "tasks":
@@ -873,21 +928,23 @@ class FreesToolsApp(App):
 
     def render_torrents(self, rows: list[dict]) -> None:
         self.torrent_rows = rows
-        table = self.query_one("#torrent-table", DataTable)
-        cursor = table.cursor_row
-        table.clear()
+        table = self.main_query("#torrent-table", DataTable)
+        values = []
         for row in rows:
             identity = str(row.get("id") or row.get("gid"))
-            table.add_row(
-                identity,
-                str(row.get("name", "")),
-                str(row.get("status", "")),
-                f"{row.get('progress', 0):.1f}%",
-                str(row.get("download_speed", row.get("downloadSpeed", ""))),
-                key=identity,
+            values.append(
+                (
+                    identity,
+                    (
+                        identity,
+                        str(row.get("name", "")),
+                        str(row.get("status", "")),
+                        f"{row.get('progress', 0):.1f}%",
+                        str(row.get("download_speed", row.get("downloadSpeed", ""))),
+                    ),
+                )
             )
-        if rows:
-            table.move_cursor(row=min(cursor, len(rows) - 1))
+        self.update_table(table, values, self.torrent_id)
 
     @work(thread=True, group="torrent-action")
     def torrent_action(self, action: str, task_id: str | None, delete_data: bool = False) -> None:

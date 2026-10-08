@@ -131,3 +131,18 @@ def test_task_failure_record(tmp_path, monkeypatch):
     assert task.status == "FAILED"
     assert task.error == "fixture failure"
     manager.close()
+
+
+def test_shutdown_records_queued_cancellations(tmp_path, monkeypatch):
+    import frees_tools.core.tasks as tasks
+
+    monkeypatch.setattr(tasks, "STATE_DIR", tmp_path)
+    manager = TaskManager()
+
+    def work(progress, cancel):
+        cancel.wait(5)
+
+    jobs = [manager.submit("fixture", work) for _ in range(8)]
+    manager.close()
+    assert all(job.status == "CANCELLED" for job in jobs)
+    assert all(row["status"] == "CANCELLED" for row in manager.list())

@@ -9,6 +9,7 @@ import platform
 import shutil
 import subprocess
 import sys
+import sysconfig
 import tarfile
 import zipfile
 import tempfile
@@ -55,12 +56,18 @@ else:
         alias.symlink_to("Frees-Tools")
 for args in (["--version"], ["--help"], ["--json", "doctor"]):
     result = subprocess.run(
-        [str(exe), *args], check=True, capture_output=True, text=True, timeout=90
+        [str(exe), *args], check=True, capture_output=True, text=True, encoding="utf-8", timeout=90
     )
     if "--json" in args:
         json.loads(result.stdout)
 license_dir = folder / "THIRD_PARTY_LICENSES"
 license_dir.mkdir(exist_ok=True)
+python_license = Path(sysconfig.get_path("stdlib")) / "LICENSE.txt"
+if not python_license.exists():
+    python_license = Path(sys.base_prefix) / "LICENSE.txt"
+if not python_license.exists():
+    raise RuntimeError("Python runtime license missing; do not publish this build")
+shutil.copy2(python_license, license_dir / "Python-LICENSE.txt")
 for distribution in importlib.metadata.distributions():
     name = distribution.metadata.get("Name", "unknown")
     if name.lower() in {
@@ -99,9 +106,16 @@ with tempfile.TemporaryDirectory() as name:
         ],
         ["pdf", "from-images", str(temp / "out.jpg"), "--output", str(temp / "out.pdf")],
         ["pdf", "info", str(temp / "out.pdf")],
+        ["self-test"],
     ):
         subprocess.run(
-            [str(exe), "--json", *args], check=True, capture_output=True, text=True, timeout=90
+            [str(exe), "--json", *args],
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=90,
+            env=os.environ | {"FREES_TOOLS_HOME": str(temp / "state")},
         )
 system = {"Darwin": "macos", "Windows": "windows", "Linux": "linux"}[platform.system()]
 arch = {"arm64": "arm64", "aarch64": "arm64", "AMD64": "x64", "x86_64": "x64"}[platform.machine()]

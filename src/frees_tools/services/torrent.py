@@ -23,6 +23,7 @@ from frees_tools.core import config
 from frees_tools.core.errors import ToolError
 
 _LOCAL_LOCK = threading.RLock()
+_DAEMONS: dict[int, subprocess.Popen] = {}
 
 
 def _atomic_json(path: Path, value: dict) -> None:
@@ -221,7 +222,7 @@ class TorrentService:
             "download-result=hide",
         ]
         fd = os.open(engine_config, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w") as stream:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
             stream.write("\n".join(lines) + "\n")
         kwargs = {
             "stdin": subprocess.DEVNULL,
@@ -237,6 +238,7 @@ class TorrentService:
         process = subprocess.Popen([str(engine), "--conf-path=" + str(engine_config)], **kwargs)
         self._process = process
         self.runtime["pid"] = process.pid
+        _DAEMONS[process.pid] = process
         _atomic_json(self.runtime_path, self.runtime)
         deadline = time.monotonic() + 8
         while time.monotonic() < deadline:
@@ -274,6 +276,7 @@ class TorrentService:
                 raise ToolError("文件选择应为 1,2 或 1-3 等索引")
             options["select-file"] = indexes
         payload = None
+        delete_data_allowed = not any(destination.iterdir())
         if not source.startswith("magnet:?"):
             path = Path(source).expanduser().resolve()
             if not path.is_file() or path.suffix.lower() != ".torrent":
@@ -282,6 +285,15 @@ class TorrentService:
                 raise ToolError("种子文件过大（上限 32 MiB）")
             payload = path.read_bytes()
             _validate_torrent(payload)
+            metadata = _decode_torrent(payload)[b"info"]
+            name = metadata[b"name"].decode("utf-8")
+            targets = [destination / name]
+            if b"files" in metadata:
+                targets = [
+                    destination / name / Path(*[part.decode("utf-8") for part in item[b"path"]])
+                    for item in metadata[b"files"]
+                ]
+            delete_data_allowed = not any(path.exists() or path.is_symlink() for path in targets)
             source = str(path)
         elif "xt=urn:btih:" not in source and "xt=urn:btmh:" not in source:
             raise ToolError("磁力链接缺少 BitTorrent 内容标识")
@@ -299,6 +311,9 @@ class TorrentService:
                 "directory": str(destination),
                 "select_files": select_files,
                 "created_at": time.time(),
+                "started_at": None,
+                "completed_at": None,
+                "delete_data_allowed": delete_data_allowed,
             }
             _atomic_json(self.records_path, records)
             self._rpc("saveSession")
@@ -333,6 +348,10 @@ class TorrentService:
             "error": "FAILED",
             "removed": "CANCELLED",
         }.get(data.get("status"), "PENDING")
+        if status == "RUNNING" and not record.get("started_at"):
+            record = {**record, "started_at": time.time()}
+        if status in ("COMPLETED", "FAILED", "CANCELLED") and not record.get("completed_at"):
+            record = {**record, "completed_at": time.time()}
         return {
             **record,
             "id": record.get("id", data["gid"]),
@@ -396,6 +415,10 @@ class TorrentService:
         if delete_data and not confirm:
             raise ToolError("删除实际下载数据必须明确二次确认")
         current = self.status(id)
+        if delete_data and not current.get("delete_data_allowed", False):
+            raise ToolError(
+                "该任务目标在添加时已存在文件，无法安全确认数据归属；请保留任务数据并手动核对路径。"
+            )
         gid = current.get("engine_id", id)
         if current["status"] in ("RUNNING", "PENDING", "PAUSED"):
             self._rpc("forceRemove", gid)

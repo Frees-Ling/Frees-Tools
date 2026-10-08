@@ -137,6 +137,8 @@ class TaskManager:
             self._save(task)
 
         try:
+            if event.is_set():
+                raise ToolError("任务已取消")
             task.result = fn(update, event)
             if isinstance(task.result, dict) and task.result.get("failed", 0):
                 raise ToolError(json.dumps(task.result, ensure_ascii=False))
@@ -178,4 +180,4 @@ class TaskManager:
     def close(self):
         for _, event in list(self.active.values()):
             event.set()
-        self.executor.shutdown(wait=True, cancel_futures=True)
+        self.executor.shutdown(wait=True, cancel_futures=False)

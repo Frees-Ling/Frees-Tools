@@ -29,7 +29,7 @@ JSON = False
 
 def emit(value):
     if JSON:
-        typer.echo(json.dumps(value, ensure_ascii=False, default=str))
+        typer.echo(json.dumps(value, ensure_ascii=True, default=str))
     else:
         Console().print_json(json.dumps(value, ensure_ascii=False, default=str))
 
@@ -391,7 +391,35 @@ def config_set(key: str, value: str):
     execute(update)
 
 
+@app.command("self-test", hidden=True)
+def self_test():
+    """Exercise packaged Textual imports and responsive navigation without a TTY."""
+    import asyncio
+    from frees_tools.tui.app import FreesToolsApp
+    from textual.widgets import ContentSwitcher
+
+    async def check():
+        application = FreesToolsApp()
+        try:
+            async with application.run_test(size=(110, 40)) as pilot:
+                await pilot.press("ctrl+t")
+                if application.query_one("#pages", ContentSwitcher).current != "tasks":
+                    raise ToolError("TUI task navigation failed")
+                await pilot.resize_terminal(60, 24)
+                await pilot.press("escape")
+                if application.query_one("#pages", ContentSwitcher).current != "dashboard":
+                    raise ToolError("TUI responsive navigation failed")
+            return {"tui": "passed", "sizes": ["110x40", "60x24"]}
+        finally:
+            application.manager.close()
+
+    execute(lambda: asyncio.run(check()))
+
+
 def main():
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
     # Accept --json at every command depth without polluting machine output.
     if "--json" in sys.argv[1:]:
         sys.argv[:] = [sys.argv[0], "--json", *[v for v in sys.argv[1:] if v != "--json"]]

@@ -48,6 +48,8 @@ def validate(data: dict) -> dict:
     for key in ("download_limit", "upload_limit"):
         if not re.fullmatch(r"[0-9]+[KkMmGg]?", result[key]):
             raise ToolError(f"{key} 应为 0、1M 等速率。")
+    if result["theme"] not in ("textual-dark", "textual-light"):
+        raise ToolError("theme 仅支持 textual-dark 或 textual-light。")
     if result["language"] not in ("zh_CN", "en"):
         raise ToolError("language 仅支持 zh_CN 或 en。")
     if result["image_format"] not in ("png", "jpg", "jpeg", "webp", "bmp", "tif", "tiff", "gif"):

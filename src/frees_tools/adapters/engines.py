@@ -21,7 +21,7 @@ def installation_help() -> str:
     if system == "Darwin":
         return "安装 Homebrew 后运行: brew install ffmpeg aria2"
     if system == "Windows":
-        return "运行: winget install Gyan.FFmpeg 和 winget install aria2.aria2；重新打开终端。"
+        return "安装外部引擎，运行: winget install Gyan.FFmpeg 和 winget install aria2.aria2；重新打开终端。"
     return "使用发行版软件管理器安装 ffmpeg 和 aria2，例如: sudo apt install ffmpeg aria2"
 
 

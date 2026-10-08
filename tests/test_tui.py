@@ -199,3 +199,40 @@ async def test_task_error_detail_retry_and_cancel_confirmation(tmp_path, monkeyp
         await pilot.click("#yes")
         assert (await wait_for_task(manager, active.id))["status"] == "CANCELLED"
     manager.close()
+
+
+async def test_polling_preserves_selected_task_and_detail_identity(tmp_path, monkeypatch):
+    """New rows and repeated polling must never redirect actions to another task."""
+    from textual.widgets import DataTable
+    from frees_tools.tui.app import Detail
+
+    monkeypatch.setattr("frees_tools.core.tasks.STATE_DIR", tmp_path)
+    manager = TaskManager()
+    first = manager.submit("first", lambda progress, cancel: {"first": True})
+    second = manager.submit("second", lambda progress, cancel: {"second": True})
+    await wait_for_task(manager, first.id)
+    await wait_for_task(manager, second.id)
+    app = FreesToolsApp(manager)
+    async with app.run_test(size=(120, 55)) as pilot:
+        app.show_page("tasks")
+        table = app.query_one("#task-table", DataTable)
+        table.move_cursor(row=table.get_row_index(first.id))
+        await pilot.pause()
+        assert app.task_id == first.id
+        newest = manager.submit("newest", lambda progress, cancel: {"newest": True})
+        await wait_for_task(manager, newest.id)
+        for _ in range(5):
+            app.refresh_tasks()
+            await pilot.pause(0.01)
+            assert app.task_id == first.id
+            assert app.current_row_id(table) == first.id
+        await pilot.click("#task-details")
+        assert isinstance(app.screen, Detail)
+        assert app.screen.value["id"] == first.id
+        app.refresh_tasks()
+        await pilot.pause(0.5)
+        assert isinstance(app.screen, Detail)
+        assert app.screen.value["id"] == first.id
+    # A timer callback already queued during teardown must be harmless.
+    app.refresh_tasks()
+    manager.close()
