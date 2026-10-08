@@ -12,6 +12,7 @@ jobs:
       matrix:
         os: [ubuntu-22.04, windows-latest, macos-15, macos-15-intel]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -19,7 +20,8 @@ jobs:
           version: '0.9.21'
           python-version: '3.12'
       - if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg aria2
+        timeout-minutes: 5
+        run: sudo apt-get update -o Acquire::Retries=1 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 && sudo apt-get install -y ffmpeg aria2
       - if: runner.os == 'macOS'
         run: HOMEBREW_NO_AUTO_UPDATE=1 brew install ffmpeg aria2
       - if: runner.os == 'Windows'

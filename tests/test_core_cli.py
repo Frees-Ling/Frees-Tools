@@ -15,6 +15,7 @@ def cli(*args, home):
     return subprocess.run(
         [sys.executable, "-m", "frees_tools.cli", *map(str, args)],
         text=True,
+        encoding="utf-8",
         capture_output=True,
         env=os.environ | {"FREES_TOOLS_HOME": str(home)},
         timeout=30,
