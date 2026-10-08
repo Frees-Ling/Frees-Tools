@@ -402,11 +402,15 @@ def self_test():
         application = FreesToolsApp()
         try:
             async with application.run_test(size=(110, 40)) as pilot:
+                await pilot.pause()
                 await pilot.press("ctrl+t")
+                await pilot.pause()
                 if application.query_one("#pages", ContentSwitcher).current != "tasks":
                     raise ToolError("TUI task navigation failed")
                 await pilot.resize_terminal(60, 24)
+                await pilot.pause()
                 await pilot.press("escape")
+                await pilot.pause()
                 if application.query_one("#pages", ContentSwitcher).current != "dashboard":
                     raise ToolError("TUI responsive navigation failed")
             return {"tui": "passed", "sizes": ["110x40", "60x24"]}

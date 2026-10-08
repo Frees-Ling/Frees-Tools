@@ -15,9 +15,21 @@ import zipfile
 import tempfile
 from PIL import Image
 
+
+def run_checked(*args, **kwargs):
+    try:
+        return subprocess.run(*args, **kwargs)
+    except subprocess.CalledProcessError as error:
+        if error.stdout:
+            print(error.stdout[-6000:])
+        if error.stderr:
+            print(error.stderr[-6000:], file=sys.stderr)
+        raise
+
+
 root = Path(__file__).resolve().parents[1]
 os.chdir(root)
-subprocess.run(
+run_checked(
     [
         sys.executable,
         "-m",
@@ -59,9 +71,9 @@ else:
     elif not alias.exists():
         alias.symlink_to("Frees-Tools")
 lower_entry = folder / ("frees-tools.exe" if os.name == "nt" else "frees-tools")
-subprocess.run([str(lower_entry), "--version"], check=True, capture_output=True, timeout=90)
+run_checked([str(lower_entry), "--version"], check=True, capture_output=True, timeout=90)
 for args in (["--version"], ["--help"], ["--json", "doctor"]):
-    result = subprocess.run(
+    result = run_checked(
         [str(exe), *args], check=True, capture_output=True, text=True, encoding="utf-8", timeout=90
     )
     if "--json" in args:
@@ -114,7 +126,7 @@ with tempfile.TemporaryDirectory() as name:
         ["pdf", "info", str(temp / "out.pdf")],
         ["self-test"],
     ):
-        subprocess.run(
+        run_checked(
             [str(exe), "--json", *args],
             check=True,
             capture_output=True,
@@ -129,7 +141,7 @@ with tempfile.TemporaryDirectory() as name:
     environment = os.environ | {"FREES_TOOLS_HOME": str(temp / "state")}
 
     def frozen(*arguments):
-        result = subprocess.run(
+        result = run_checked(
             [str(exe), "--json", *map(str, arguments)],
             check=True,
             capture_output=True,
@@ -141,7 +153,7 @@ with tempfile.TemporaryDirectory() as name:
         return json.loads(result.stdout)
 
     if shutil.which("ffmpeg") and shutil.which("ffprobe"):
-        subprocess.run(
+        run_checked(
             [
                 shutil.which("ffmpeg"),
                 "-v",

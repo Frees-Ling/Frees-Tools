@@ -16,12 +16,16 @@ async def test_navigation_responsive_and_help(tmp_path, monkeypatch):
     async with app.run_test(size=(100, 40)) as pilot:
         assert "_____" in str(app.query_one("#logo", Static).render())
         await pilot.press("f1")
+        await pilot.pause()
         assert app.query_one("#pages", ContentSwitcher).current == "about"
         await pilot.press("ctrl+t")
+        await pilot.pause()
         assert app.query_one("#pages", ContentSwitcher).current == "tasks"
         await pilot.resize_terminal(60, 24)
+        await pilot.pause()
         assert "FREES TOOLS" in str(app.query_one("#logo", Static).render())
         await pilot.press("escape")
+        await pilot.pause()
         assert app.query_one("#pages", ContentSwitcher).current == "dashboard"
     manager.close()
 
@@ -45,12 +49,15 @@ async def test_file_browser_navigation_multiselect_order(tmp_path, monkeypatch):
         files.focus()
         files.index = 0
         await pilot.press("enter", "down", "enter")
+        await pilot.pause()
         assert browser.selected == [folder / "a.png", folder / "b.png"]
         selected = browser.query_one("#browser-selected", ListView)
         selected.index = 1
         await pilot.click("#browser-up")
+        await pilot.pause()
         assert browser.selected == [folder / "b.png", folder / "a.png"]
         await pilot.click("#browser-use")
+        await pilot.pause()
         assert result == [[str(folder / "b.png"), str(folder / "a.png")]]
     manager.close()
 
@@ -71,6 +78,7 @@ async def test_image_form_runs_real_conversion_in_shared_tasks(tmp_path, monkeyp
         app.query_one("#image-format", Select).value = "webp"
         await pilot.pause()
         await pilot.click("#image-start")
+        await pilot.pause()
         for _ in range(100):
             await asyncio.sleep(0.02)
             if manager.list() and manager.list()[0]["status"] in {"COMPLETED", "FAILED"}:
@@ -109,6 +117,7 @@ async def test_pdf_form_real_combine(tmp_path, monkeypatch):
         app.query_one("#pdf-output", Input).value = str(output)
         await pilot.pause()
         await pilot.click("#pdf-start")
+        await pilot.pause()
         row = await wait_for_task(manager, app.task_id)
         assert row["status"] == "COMPLETED", row
         assert len(PdfReader(output).pages) == 2
@@ -151,6 +160,7 @@ async def test_video_form_real_transcode(tmp_path, monkeypatch):
         app.query_one("#video-resolution", Input).value = "32x24"
         await pilot.pause()
         await pilot.click("#video-start")
+        await pilot.pause()
         row = await wait_for_task(manager, app.task_id)
         assert row["status"] == "COMPLETED", row
         assert info(output)["width"] == 32
@@ -179,6 +189,7 @@ async def test_task_error_detail_retry_and_cancel_confirmation(tmp_path, monkeyp
         app.task_id = failed.id
         await pilot.pause()
         clicked = await pilot.click("#task-details")
+        await pilot.pause()
         assert isinstance(app.screen, Detail), {
             "selected": app.task_id,
             "failed": failed.id,
@@ -189,6 +200,7 @@ async def test_task_error_detail_retry_and_cancel_confirmation(tmp_path, monkeyp
         }
         assert app.screen.value["error"] == "真实失败详情"
         await pilot.press("escape")
+        await pilot.pause()
         await pilot.click("#task-retry")
         await pilot.pause()
         for _ in range(200):
@@ -208,8 +220,10 @@ async def test_task_error_detail_retry_and_cancel_confirmation(tmp_path, monkeyp
         await pilot.pause()
         app.task_id = active.id
         await pilot.click("#task-cancel")
+        await pilot.pause()
         assert isinstance(app.screen, Confirm)
         await pilot.click("#yes")
+        await pilot.pause()
         assert (await wait_for_task(manager, active.id))["status"] == "CANCELLED"
     manager.close()
 
@@ -244,6 +258,7 @@ async def test_polling_preserves_selected_task_and_detail_identity(tmp_path, mon
             assert app.task_id == first.id
             assert app.current_row_id(table) == first.id
         await pilot.click("#task-details")
+        await pilot.pause()
         assert isinstance(app.screen, Detail)
         assert app.screen.value["id"] == first.id
         app.refresh_tasks()
