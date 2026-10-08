@@ -26,7 +26,7 @@ uv run python scripts/build_release.py
 
 脚本只打包当前操作系统和架构，使用 PyInstaller onedir，随后启动产物验证版本、帮助、JSON doctor，并处理真实中文路径图片与 PDF。保留整个输出目录。Windows 输出 ZIP，macOS / Linux 输出 tar.gz；旁边生成 SHA256 校验文件。项目代码和第三方说明随包附带；FFmpeg / aria2 不随包。
 
-计划资产命名：
+原生资产命名：
 
 | 平台 | 资产 |
 | --- | --- |
@@ -35,7 +35,7 @@ uv run python scripts/build_release.py
 | macOS Intel | `Frees-Tools-v0.1.0-macos-x64.tar.gz` |
 | Linux x64 | `Frees-Tools-v0.1.0-linux-x64.tar.gz` |
 
-这是命名约定，不是已经产生全部资产的声明。Linux 使用 Ubuntu 22.04、glibc 2.35 构建基线；旧 glibc / musl 未保证。macOS 和 Windows 暂无正式签名 / 公证，必须如实告知用户。
+四个平台实际验证记录见 `RELEASE_READINESS.md`。Linux 使用 Ubuntu 22.04、glibc 2.35 构建基线；旧 glibc / musl 未保证。macOS 和 Windows 暂无正式签名 / 公证，必须如实告知用户。
 
 ## GitHub Actions
 

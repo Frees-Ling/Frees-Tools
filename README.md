@@ -2,7 +2,7 @@
 
 跨平台终端工具箱：在同一个 Textual 界面中转换图片、合成 PDF、转换视频、管理 BitTorrent 下载，也可以用 CLI 自动化调用。
 
-项目版本：**0.1.0**。目标平台是 Windows x64、macOS arm64 / x64、Linux x64。跨平台验证与正式发布状态以 [实施记录](docs/IMPLEMENTATION_STATUS.md) 和 [发布检查](docs/RELEASE_READINESS.md) 为准；配置了 CI 不代表对应平台已经通过验证。
+项目版本：**0.1.0**。Windows x64、macOS arm64 / x64、Linux x64 已通过真实测试与原生包运行检查。详细证据和已知限制见 [实施记录](docs/IMPLEMENTATION_STATUS.md) 与 [发布检查](docs/RELEASE_READINESS.md)。
 
 [English](README_EN.md) · [安装手册](docs/INSTALL.md) · [架构](docs/ARCHITECTURE.md) · [构建与发布](docs/BUILD.md)
 

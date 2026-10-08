@@ -1,30 +1,39 @@
 # 发布就绪检查
 
-状态：待最终验证；禁止将本文件的待办当作通过证据。
+验证日期：2026-10-09（北京时间）。功能提交 `1d844a4caab7702a60f1fc4e4c75ceab5bdbb9a8`。
 
-| 项目 | 当前证据 |
-|---|---|
-| 本机真实业务测试 | 阶段性 46 项通过；最终测试待更新 |
-| Wheel / sdist | 已构建，最终代码变更后须重建 |
-| macOS arm64 独立包 | 构建中 |
-| macOS x64 | CI 待执行 |
-| Windows x64 | CI 待执行 |
-| Linux x64 | CI 待执行，Ubuntu 22.04 / glibc 2.35 基线 |
-| GitHub Release | 未创建，必须等全部原生构建验证通过 |
-| PyPI | 查询返回 404，名称当时未注册；未保留名称，未发布，Trusted Publisher 未配置 |
-| 签名 / 公证 | 无正式证书，不宣称已签名或公证 |
-| 外部引擎 | 不随包分发，诊断提供各平台安装引导 |
+## 原生验证
+
+[CI 37843013822](https://github.com/Frees-Ling/Frees-Tools/actions/runs/37843013822) 实际执行四个平台的 Ruff、pytest、两个入口、JSON doctor、Wheel / sdist 和 PyInstaller 原生打包；封装程序另外启动并实际处理中文路径图片、PDF、短视频，执行响应式 TUI 自测及 aria2 启停。不是交叉编译或改名产物。
+
+| 平台 | 源码回归 | 原生包 |
+| --- | --- | --- |
+| Windows x64 | 75 passed | `Frees-Tools-v0.1.0-windows-x64.zip` |
+| macOS arm64 | 75 passed | `Frees-Tools-v0.1.0-macos-arm64.tar.gz` |
+| macOS Intel x64 | 75 passed | `Frees-Tools-v0.1.0-macos-x64.tar.gz` |
+| Linux x64 / Ubuntu 22.04 | 74 passed, 1 skipped | `Frees-Tools-v0.1.0-linux-x64.tar.gz` |
+
+Linux 的跳过项仅适用于大小写不敏感文件系统；该项在 Windows 与 macOS 实际执行。所有四个平台都安装真实 FFmpeg / aria2，引擎集成未作为缺依赖跳过。本机另有 75 项通过与实际用户级 Wheel 安装验证。
+
+PyInstaller 在 macOS / Linux 分析时提示找不到 Windows 专用 `shell32` / `ole32` 库；程序运行检查通过。这些诊断未被当作零警告或跨平台运行证明。
+
+## 发布状态
+
+- Python Wheel / sdist：已实际生成，命令入口与安装通过。
+- 四个原生包：已各自在对应系统构建并运行检查。
+- GitHub Release：待版本 Tag 工作流全部验证后创建；尚不据本文宣称发布成功。
+- 校验值：本机构建生成 SHA256；Release 工作流汇总实际上传资产为 `SHA256SUMS`。
+- PyPI：未发布。名称查询曾为 404；名称未保留，Trusted Publisher 与 GitHub `pypi` environment 未配置。恢复步骤见 `BUILD.md`。
+- 签名 / 公证：没有项目正式证书，不宣称正式签名、公证或 SmartScreen 信誉。
+- 外部引擎：FFmpeg / ffprobe / aria2 不随包提供，使用可信软件管理器安装；图片与 PDF 可直接使用。
 
 ## 已知边界
 
-- 多帧图片转换要求显式选择第一帧，PDF 合成会包含各帧。
-- 正在运行的转换关闭程序时确认取消；BT 后台继续，显式 `torrent shutdown` 保存并停止。
-- 英语界面为未来扩展预留，当前界面简体中文。
-- 失败的图片/PDF/视频任务在同一次 TUI 会话支持重试；重启后需重新填写操作。
-- 不发布未经各系统真实打包和启动验证的资产。
-
-## 首轮 CI 发现与修复
-
-运行 `37839391271` 暴露任务列表刷新选择竞争；Windows 另暴露重定向 JSON 的本地编码限制及页面卸载计时器。对应修复进入后续提交，须重新执行全矩阵，首轮不算通过。
-
-安全审计额外补充：对于添加时已存在目标文件的下载任务，不允许自动删除数据，避免误删旧文件。磁力任务使用新建独立子目录，种子任务在 RPC 启动前拒绝越界符号链接目标，并保护既有续传控制文件。
+- Linux 原生基线 Ubuntu 22.04 / glibc 2.35；旧 glibc、musl 与额外 CPU 架构未保证。
+- 当前界面简体中文，未来 i18n 已预留；AVIF / HEIC 不在首版保证范围。
+- 多帧图片转换需显式选择第一帧；PDF 合成包含全部图片帧。加密 PDF 需先解除密码。
+- 转换不覆盖输入，包括硬链接和大小写别名；目标覆盖需明确请求。多文件批量过程中取消可能保留已成功的独立结果。
+- 本地转换退出会取消并清理未完成输出；当前会话可重试，跨重启需重新提交转换。下载历史和恢复状态持久化，客户端退出后后台继续；显式 `torrent shutdown` 保存并停止。
+- 公共 Magnet 依赖实际网络与 Peer；测试证明本地真实协议传输，不能保证任意公共链接完成。
+- 下载添加时已有目标文件或续传控制文件，不允许自动删除这些数据。Magnet 使用新建独立子目录；Torrent 预检异常路径与符号链接。
+- 硬件编码依安装 FFmpeg 与设备；不可用时解释原因并提供软件回退建议。

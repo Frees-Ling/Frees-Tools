@@ -28,4 +28,4 @@ FFmpeg / ffprobe 与 aria2c **不随包提供**；视频和下载功能需先通
 
 macOS / Windows 暂未进行正式代码签名或公证，系统可能提示未知发布者。核验来源，不要关闭全局安全保护。Linux 构建基线为 Ubuntu 22.04 / glibc 2.35，未保证旧 glibc / Alpine musl。硬件编码及具体编解码器依安装的 FFmpeg 能力而定。公共 Magnet 下载依实际网络与 Peer 条件，不能保证任意链接有可用资源。
 
-仅在发布检查通过后创建正式 Release；具体平台构建、测试证据和已知限制见仓库 `docs/RELEASE_READINESS.md`。该说明作为工作流模板维护，其存在不代表本次 Release 已创建。
+本版已在 Windows x64、macOS arm64、macOS Intel x64、Ubuntu 22.04 x64 实际测试并构建，各平台封装程序通过启动和真实业务冒烟。源码回归 Windows / macOS 各 75 项通过，Linux 74 项通过、1 项跳过（仅适用大小写不敏感文件系统）。详细证据和边界见仓库 `docs/RELEASE_READINESS.md`。
