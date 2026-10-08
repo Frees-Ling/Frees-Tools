@@ -15,6 +15,7 @@ import socket
 import subprocess
 import threading
 import time
+import tempfile
 from urllib.error import URLError
 from urllib.request import Request, ProxyHandler, build_opener
 
@@ -119,7 +120,7 @@ def _validate_torrent(data: bytes) -> None:
             text = raw.decode("utf-8")
             if not text or text in (".", "..") or any(c in text for c in ("/", "\\", "\x00", ":")):
                 raise ValueError("unsafe filename")
-    except (KeyError, ValueError, TypeError, UnicodeError, IndexError) as exc:
+    except (KeyError, ValueError, TypeError, UnicodeError, IndexError, AttributeError) as exc:
         raise ToolError("种子损坏或包含不安全的文件路径") from exc
 
 
@@ -259,6 +260,9 @@ class TorrentService:
         destination = Path(directory).expanduser().resolve()
         destination.mkdir(parents=True, exist_ok=True)
         source = str(source)
+        requested_directory = str(destination)
+        if source.startswith("magnet:?"):
+            destination = Path(tempfile.mkdtemp(prefix="Frees-Tools-", dir=destination))
         options = {
             "dir": str(destination),
             "allow-overwrite": "false",
@@ -293,7 +297,16 @@ class TorrentService:
                     destination / name / Path(*[part.decode("utf-8") for part in item[b"path"]])
                     for item in metadata[b"files"]
                 ]
-            delete_data_allowed = not any(path.exists() or path.is_symlink() for path in targets)
+            for target in targets:
+                if not target.resolve().is_relative_to(destination):
+                    raise ToolError("种子目标经过符号链接指向下载目录之外，已拒绝开始下载")
+            delete_data_allowed = not any(
+                target.exists()
+                or target.is_symlink()
+                or target.with_name(target.name + ".aria2").exists()
+                or target.with_name(target.name + ".aria2").is_symlink()
+                for target in targets
+            )
             source = str(path)
         elif "xt=urn:btih:" not in source and "xt=urn:btmh:" not in source:
             raise ToolError("磁力链接缺少 BitTorrent 内容标识")
@@ -309,6 +322,7 @@ class TorrentService:
                 "id": gid,
                 "source": source,
                 "directory": str(destination),
+                "requested_directory": requested_directory,
                 "select_files": select_files,
                 "created_at": time.time(),
                 "started_at": None,
@@ -457,7 +471,11 @@ class TorrentService:
         record = records[id]
         if record.get("status") in ("RUNNING", "PENDING", "PAUSED"):
             raise ToolError("任务仍在队列中；请恢复或先移除任务")
-        return self.add(record["source"], record["directory"], record.get("select_files"))
+        return self.add(
+            record["source"],
+            record.get("requested_directory", record["directory"]),
+            record.get("select_files"),
+        )
 
     def shutdown(self) -> dict:
         with _lock(self.lock_path):

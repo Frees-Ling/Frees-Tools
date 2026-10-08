@@ -178,8 +178,15 @@ async def test_task_error_detail_retry_and_cancel_confirmation(tmp_path, monkeyp
         app.show_page("tasks")
         app.task_id = failed.id
         await pilot.pause()
-        await pilot.click("#task-details")
-        assert isinstance(app.screen, Detail)
+        clicked = await pilot.click("#task-details")
+        assert isinstance(app.screen, Detail), {
+            "selected": app.task_id,
+            "failed": failed.id,
+            "rows": manager.list(),
+            "clicked": clicked,
+            "button_region": str(app.main_query("#task-details").region),
+            "page": app.main_query("#pages", ContentSwitcher).current,
+        }
         assert app.screen.value["error"] == "真实失败详情"
         await pilot.press("escape")
         await pilot.click("#task-retry")
@@ -219,6 +226,10 @@ async def test_polling_preserves_selected_task_and_detail_identity(tmp_path, mon
         table.move_cursor(row=table.get_row_index(first.id))
         await pilot.pause()
         assert app.task_id == first.id
+        actions_region = app.main_query("#task-details").region
+        app.main_query("#task-selected", Static).update("多行进度详情\n" * 12)
+        await pilot.pause(0.01)
+        assert app.main_query("#task-details").region == actions_region
         newest = manager.submit("newest", lambda progress, cancel: {"newest": True})
         await wait_for_task(manager, newest.id)
         for _ in range(5):
@@ -235,4 +246,33 @@ async def test_polling_preserves_selected_task_and_detail_identity(tmp_path, mon
         assert app.screen.value["id"] == first.id
     # A timer callback already queued during teardown must be harmless.
     app.refresh_tasks()
+    manager.close()
+
+
+async def test_image_batch_preflight_protects_all_sources_and_destinations(tmp_path, monkeypatch):
+    import pytest
+    from textual.widgets import Checkbox, Select
+
+    monkeypatch.setattr("frees_tools.core.tasks.STATE_DIR", tmp_path)
+    source_jpg, source_png = tmp_path / "photo.jpg", tmp_path / "photo.png"
+    Image.new("RGB", (10, 10), "red").save(source_jpg)
+    Image.new("RGB", (10, 10), "blue").save(source_png)
+    originals = {path: path.read_bytes() for path in (source_jpg, source_png)}
+    manager = TaskManager()
+    app = FreesToolsApp(manager)
+    async with app.run_test(size=(120, 55)):
+        app.show_page("image")
+        app.image_paths = [str(source_jpg), str(source_png)]
+        app.main_query("#image-source", Input).value = str(source_jpg)
+        app.main_query("#image-output", Input).value = str(tmp_path)
+        app.main_query("#image-format", Select).value = "png"
+        app.main_query("#image-overwrite", Checkbox).value = True
+        with pytest.raises(ValueError, match="输入文件"):
+            app.start_images()
+        app.main_query("#image-output", Input).value = str(tmp_path / "converted")
+        with pytest.raises(ValueError, match="相同输出"):
+            app.start_images()
+        assert not manager.list()
+        assert all(path.read_bytes() == data for path, data in originals.items())
+        assert not (tmp_path / "converted").exists()
     manager.close()

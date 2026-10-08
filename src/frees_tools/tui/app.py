@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Callable
 
@@ -242,6 +243,7 @@ class FreesToolsApp(App):
     .options > * { width: 1fr; margin-right: 1; }
     DataTable { height: 12; margin-bottom: 1; }
     #task-progress { margin-bottom: 1; }
+    #task-selected { height: 5; overflow: hidden; }
     #pdf-inputs { height: 7; }
     #status { height: auto; max-height: 3; color: #67e8f9; padding: 0 2; }
     ModalScreen { align: center middle; background: #000000 65%; }
@@ -790,12 +792,28 @@ class FreesToolsApp(App):
             "first_frame": self.checked("image-first"),
         }
 
+        targets = []
+        for path in paths:
+            target = (
+                Path(output).expanduser()
+                if output
+                else Path(path).expanduser().with_suffix("." + options["to"])
+            )
+            if output and (len(paths) > 1 or target.is_dir() or not target.suffix):
+                target = target / (Path(path).stem + "." + options["to"])
+            targets.append(target.resolve())
+        protected = {os.path.normcase(str(Path(path).expanduser().resolve())) for path in paths}
+        destinations = [os.path.normcase(str(target)) for target in targets]
+        if protected.intersection(destinations):
+            raise ValueError(
+                "输出路径指向已选输入文件，请选择其他输出目录或文件名；不会覆盖任何输入"
+            )
+        if len(set(destinations)) != len(destinations):
+            raise ValueError("多个输入会生成相同输出文件名，请调整文件名或分开转换")
+
         def execute(progress, cancel):
             results = []
-            for index, path in enumerate(paths):
-                target = output
-                if output and (len(paths) > 1 or Path(output).is_dir() or not Path(output).suffix):
-                    target = str(Path(output) / (Path(path).stem + "." + options["to"]))
+            for index, (path, target) in enumerate(zip(paths, targets)):
                 result = images.convert(
                     path,
                     target,

@@ -146,3 +146,21 @@ def test_shutdown_records_queued_cancellations(tmp_path, monkeypatch):
     manager.close()
     assert all(job.status == "CANCELLED" for job in jobs)
     assert all(row["status"] == "CANCELLED" for row in manager.list())
+
+
+def test_late_cancel_after_successful_commit_is_completed(tmp_path, monkeypatch):
+    import frees_tools.core.tasks as tasks
+
+    monkeypatch.setattr(tasks, "STATE_DIR", tmp_path)
+    manager = TaskManager()
+
+    def committed(progress, cancel):
+        (tmp_path / "complete.txt").write_text("valid output")
+        cancel.set()
+        progress(100)
+        return {"output": str(tmp_path / "complete.txt")}
+
+    job = manager.run("fixture", committed)
+    assert job.status == "COMPLETED"
+    assert job.result["output"].endswith("complete.txt")
+    manager.close()

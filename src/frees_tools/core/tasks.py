@@ -124,9 +124,17 @@ class TaskManager:
         task.status, task.started_at = "RUNNING", now()
         self._save(task)
 
+        committed = False
+
         def update(value=None, *args, **details):
-            if event.is_set():
+            nonlocal committed
+            completion = value.get("progress", 0) if isinstance(value, dict) else value
+            if event.is_set() and (not isinstance(completion, (int, float)) or completion < 100):
                 raise ToolError("任务已取消")
+            if isinstance(completion, (int, float)) and completion >= 100:
+                committed = True
+            if isinstance(value, dict) and value.get("status") == "COMPLETED":
+                committed = True
             if isinstance(value, dict):
                 task.details = dict(value)
                 value = value.get("progress", value.get("percent", task.progress))
@@ -142,7 +150,7 @@ class TaskManager:
             task.result = fn(update, event)
             if isinstance(task.result, dict) and task.result.get("failed", 0):
                 raise ToolError(json.dumps(task.result, ensure_ascii=False))
-            task.status = "CANCELLED" if event.is_set() else "COMPLETED"
+            task.status = "COMPLETED" if committed or not event.is_set() else "CANCELLED"
             if task.status == "COMPLETED":
                 task.progress = 100
         except BaseException as exc:

@@ -1,4 +1,5 @@
 import hashlib
+from pathlib import Path
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from functools import partial
 import shutil
@@ -188,7 +189,7 @@ def test_real_magnet_metadata_and_content(service, tmp_path):
             time.sleep(0.2)
             task = service.status(task["id"])
         assert task["status"] == "COMPLETED", task
-        assert (tmp_path / "magnet-result" / "magnet.bin").read_bytes() == data
+        assert (Path(task["directory"]) / "magnet.bin").read_bytes() == data
         assert task["engine_id"] != task["id"], "Must follow metadata task to content task"
     finally:
         seeder.terminate()

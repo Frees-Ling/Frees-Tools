@@ -3,6 +3,7 @@
 import json
 import os
 import re
+import tempfile
 from pathlib import Path
 from platformdirs import user_config_dir, user_state_dir
 from .errors import ToolError
@@ -86,7 +87,12 @@ def load_config() -> dict:
 def save_config(data: dict) -> dict:
     result = validate(data)
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    temporary = CONFIG_DIR / "config.tmp"
-    temporary.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
-    temporary.replace(CONFIG_DIR / "config.json")
+    fd, name = tempfile.mkstemp(prefix=".config-", suffix=".tmp", dir=CONFIG_DIR)
+    temporary = Path(name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            json.dump(result, stream, ensure_ascii=False, indent=2)
+        temporary.replace(CONFIG_DIR / "config.json")
+    finally:
+        temporary.unlink(missing_ok=True)
     return result

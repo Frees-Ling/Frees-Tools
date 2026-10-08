@@ -172,11 +172,14 @@ def batch(
     cancel = options.get("cancel")
     results, errors = [], []
     reserved: set[Path] = set()
+    protected = {path.resolve() for path in paths}
     for index, path in enumerate(paths):
         _check_cancel(cancel)
         relative = path.relative_to(root).with_suffix(f".{to.lower().lstrip('.')}")
         destination = target / relative
         try:
+            if destination.resolve() in protected:
+                raise ToolError(f"输出路径与批量输入文件相同，拒绝覆盖源文件: {destination}")
             if destination in reserved:
                 raise ToolError(f"多个输入映射到相同输出路径: {destination}")
             reserved.add(destination)

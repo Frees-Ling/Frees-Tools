@@ -37,6 +37,10 @@ subprocess.run(
         "pypdf",
         "--copy-metadata",
         "frees-tools",
+        "--copy-metadata",
+        "typer",
+        "--copy-metadata",
+        "platformdirs",
         "scripts/launcher.py",
     ],
     check=True,
@@ -129,6 +133,10 @@ else:
     archive = root / "dist" / (base + ".tar.gz")
     with tarfile.open(archive, "w:gz") as t:
         t.add(folder, arcname=folder.name)
+        if platform.system() == "Darwin" and not (folder / "frees-tools").is_symlink():
+            # Include both binary names in the archive even on a case-insensitive build disk.
+            # Extracting to either case-sensitive or default macOS filesystems remains safe.
+            t.add(exe, arcname=folder.name + "/frees-tools")
 digest = hashlib.sha256(archive.read_bytes()).hexdigest()
 archive.with_suffix(archive.suffix + ".sha256").write_text(f"{digest}  {archive.name}\n")
 print(archive)
