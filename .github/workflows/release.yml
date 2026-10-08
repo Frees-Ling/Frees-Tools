@@ -55,7 +55,8 @@ jobs:
           pattern: release-*
           merge-multiple: true
           path: assets
-      - run: cat assets/*.sha256 > assets/SHA256SUMS
+      - run: sha256sum *.whl *.tar.gz *.zip > SHA256SUMS
+        working-directory: assets
       - run: gh release create "$GITHUB_REF_NAME" assets/*.whl assets/*.tar.gz assets/*.zip assets/SHA256SUMS --title "Frees Tools $GITHUB_REF_NAME" --notes-file docs/RELEASE_NOTES.md
         env:
           GH_TOKEN: ${{ github.token }}

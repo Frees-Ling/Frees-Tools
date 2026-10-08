@@ -58,6 +58,8 @@ else:
         alias.write_text('@"%~dp0Frees-Tools.exe" %*\n')
     elif not alias.exists():
         alias.symlink_to("Frees-Tools")
+lower_entry = folder / ("frees-tools.exe" if os.name == "nt" else "frees-tools")
+subprocess.run([str(lower_entry), "--version"], check=True, capture_output=True, timeout=90)
 for args in (["--version"], ["--help"], ["--json", "doctor"]):
     result = subprocess.run(
         [str(exe), *args], check=True, capture_output=True, text=True, encoding="utf-8", timeout=90
@@ -121,6 +123,51 @@ with tempfile.TemporaryDirectory() as name:
             timeout=90,
             env=os.environ | {"FREES_TOOLS_HOME": str(temp / "state")},
         )
+# Exercise external adapters from the frozen program when build engines are available.
+with tempfile.TemporaryDirectory() as name:
+    temp = Path(name)
+    environment = os.environ | {"FREES_TOOLS_HOME": str(temp / "state")}
+
+    def frozen(*arguments):
+        result = subprocess.run(
+            [str(exe), "--json", *map(str, arguments)],
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=90,
+            env=environment,
+        )
+        return json.loads(result.stdout)
+
+    if shutil.which("ffmpeg") and shutil.which("ffprobe"):
+        subprocess.run(
+            [
+                shutil.which("ffmpeg"),
+                "-v",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=blue:s=64x48:r=10:d=0.3",
+                "-c:v",
+                "mpeg4",
+                str(temp / "input.mov"),
+            ],
+            check=True,
+            timeout=30,
+        )
+        frozen(
+            "video", "convert", temp / "input.mov", "--to", "mp4", "--output", temp / "output.mp4"
+        )
+        if not (temp / "output.mp4").is_file():
+            raise RuntimeError("Frozen video smoke test did not produce output")
+    if shutil.which("aria2c"):
+        try:
+            frozen("torrent", "list")
+        finally:
+            if (temp / "state" / "torrent" / "runtime.json").exists():
+                frozen("torrent", "shutdown")
 system = {"Darwin": "macos", "Windows": "windows", "Linux": "linux"}[platform.system()]
 arch = {"arm64": "arm64", "aarch64": "arm64", "AMD64": "x64", "x86_64": "x64"}[platform.machine()]
 base = f"Frees-Tools-v0.1.0-{system}-{arch}"

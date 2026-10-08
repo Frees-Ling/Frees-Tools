@@ -191,8 +191,14 @@ async def test_task_error_detail_retry_and_cancel_confirmation(tmp_path, monkeyp
         await pilot.press("escape")
         await pilot.click("#task-retry")
         await pilot.pause()
-        retried = next(t for t in manager.list() if t["id"] != failed.id)
-        assert retried["status"] == "COMPLETED"
+        for _ in range(200):
+            retries = [row for row in manager.list() if row["id"] != failed.id]
+            if retries:
+                break
+            await asyncio.sleep(0.025)
+        assert retries, "Retry worker did not submit a new task"
+        retried = await wait_for_task(manager, retries[0]["id"])
+        assert retried["status"] == "COMPLETED", retried
 
         def running(progress, cancel):
             cancel.wait(10)
@@ -275,4 +281,40 @@ async def test_image_batch_preflight_protects_all_sources_and_destinations(tmp_p
         assert not manager.list()
         assert all(path.read_bytes() == data for path, data in originals.items())
         assert not (tmp_path / "converted").exists()
+    manager.close()
+
+
+async def test_image_preflight_rejects_samefile_alias_and_case_collisions(tmp_path, monkeypatch):
+    import os
+    import pytest
+    from textual.widgets import Checkbox, Select
+
+    monkeypatch.setattr("frees_tools.core.tasks.STATE_DIR", tmp_path)
+    source = tmp_path / "original.png"
+    alias = tmp_path / "hardlink.PNG"
+    Image.new("RGB", (10, 10), "red").save(source)
+    os.link(source, alias)
+    original_bytes = source.read_bytes()
+    lower, upper = tmp_path / "one" / "photo.png", tmp_path / "two" / "PHOTO.jpg"
+    lower.parent.mkdir()
+    upper.parent.mkdir()
+    Image.new("RGB", (10, 10), "blue").save(lower)
+    Image.new("RGB", (10, 10), "green").save(upper)
+    manager = TaskManager()
+    app = FreesToolsApp(manager)
+    async with app.run_test(size=(120, 55)):
+        app.main_query("#image-source", Input).value = str(source)
+        app.main_query("#image-output", Input).value = str(alias)
+        app.main_query("#image-overwrite", Checkbox).value = True
+        with pytest.raises(ValueError, match="输入文件"):
+            app.start_images()
+        app.image_paths = [str(lower), str(upper)]
+        app.main_query("#image-source", Input).value = str(lower)
+        app.main_query("#image-output", Input).value = str(tmp_path / "new-output")
+        app.main_query("#image-format", Select).value = "webp"
+        with pytest.raises(ValueError, match="相同输出"):
+            app.start_images()
+        assert source.read_bytes() == alias.read_bytes() == original_bytes
+        assert not manager.list()
+        assert not (tmp_path / "new-output").exists()
     manager.close()

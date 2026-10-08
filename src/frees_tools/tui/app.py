@@ -771,6 +771,7 @@ class FreesToolsApp(App):
 
     def start_images(self) -> None:
         from frees_tools.services import images
+        from frees_tools.core.files import same_file
 
         source = self.value("image-source")
         paths = (
@@ -804,11 +805,15 @@ class FreesToolsApp(App):
             targets.append(target.resolve())
         protected = {os.path.normcase(str(Path(path).expanduser().resolve())) for path in paths}
         destinations = [os.path.normcase(str(target)) for target in targets]
-        if protected.intersection(destinations):
+        source_paths = [Path(path).expanduser() for path in paths]
+        aliases_input = any(
+            same_file(target, source) for target in targets for source in source_paths
+        )
+        if protected.intersection(destinations) or aliases_input:
             raise ValueError(
                 "输出路径指向已选输入文件，请选择其他输出目录或文件名；不会覆盖任何输入"
             )
-        if len(set(destinations)) != len(destinations):
+        if len({destination.casefold() for destination in destinations}) != len(destinations):
             raise ValueError("多个输入会生成相同输出文件名，请调整文件名或分开转换")
 
         def execute(progress, cancel):

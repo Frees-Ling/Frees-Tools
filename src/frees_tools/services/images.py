@@ -8,7 +8,7 @@ from typing import Any, Callable
 from PIL import Image, ImageColor, ImageOps, UnidentifiedImageError
 
 from frees_tools.core.errors import ToolError
-from frees_tools.core.files import output_file
+from frees_tools.core.files import output_file, same_file
 
 FORMATS = {
     "png": "PNG",
@@ -171,18 +171,19 @@ def batch(
     progress = options.pop("progress", None)
     cancel = options.get("cancel")
     results, errors = [], []
-    reserved: set[Path] = set()
+    reserved: set[str] = set()
     protected = {path.resolve() for path in paths}
     for index, path in enumerate(paths):
         _check_cancel(cancel)
         relative = path.relative_to(root).with_suffix(f".{to.lower().lstrip('.')}")
         destination = target / relative
         try:
-            if destination.resolve() in protected:
+            if any(same_file(destination, source) for source in protected):
                 raise ToolError(f"输出路径与批量输入文件相同，拒绝覆盖源文件: {destination}")
-            if destination in reserved:
+            destination_key = str(destination.resolve()).casefold()
+            if destination_key in reserved:
                 raise ToolError(f"多个输入映射到相同输出路径: {destination}")
-            reserved.add(destination)
+            reserved.add(destination_key)
             results.append(convert(path, destination, to=to, overwrite=overwrite, **options))
         except ToolError as exc:
             _check_cancel(cancel)

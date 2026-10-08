@@ -4,6 +4,9 @@ import json
 import os
 import re
 import tempfile
+import time
+from contextlib import contextmanager
+from threading import RLock
 from pathlib import Path
 from platformdirs import user_config_dir, user_state_dir
 from .errors import ToolError
@@ -25,6 +28,56 @@ DEFAULTS = {
     "engines": {},
     "schema_version": 1,
 }
+
+
+_CONFIG_LOCK = RLock()
+
+
+@contextmanager
+def _config_lock():
+    """Serialize readers/writers across threads and processes, including Windows."""
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    with _CONFIG_LOCK, (CONFIG_DIR / ".config.lock").open("a+b") as stream:
+        if os.name == "nt":
+            import msvcrt
+
+            if not stream.seek(0, os.SEEK_END):
+                stream.write(b"0")
+                stream.flush()
+            stream.seek(0)
+            deadline = time.monotonic() + 15
+            while True:
+                try:
+                    msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+                    break
+                except OSError:
+                    if time.monotonic() >= deadline:
+                        raise ToolError("配置正被其他进程占用，请稍后重试")
+                    time.sleep(0.05)
+        else:
+            import fcntl
+
+            fcntl.flock(stream, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            stream.seek(0)
+            if os.name == "nt":
+                msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(stream, fcntl.LOCK_UN)
+
+
+def _publish_config(temporary: Path, target: Path) -> None:
+    # Windows antivirus/indexing can briefly hold a file without delete sharing.
+    for attempt in range(20):
+        try:
+            temporary.replace(target)
+            return
+        except PermissionError:
+            if attempt == 19:
+                raise
+            time.sleep(0.05)
 
 
 def validate(data: dict) -> dict:
@@ -75,24 +128,25 @@ def load_config() -> dict:
     path = CONFIG_DIR / "config.json"
     if not path.exists():
         return dict(DEFAULTS)
-    try:
-        return validate(json.loads(path.read_text(encoding="utf-8")))
-    except (ValueError, TypeError, ToolError):
-        backup = path.with_suffix(".invalid.json")
-        if not backup.exists():
-            backup.write_bytes(path.read_bytes())
-        return dict(DEFAULTS)
+    with _config_lock():
+        try:
+            return validate(json.loads(path.read_text(encoding="utf-8")))
+        except (ValueError, TypeError, ToolError):
+            backup = path.with_suffix(".invalid.json")
+            if not backup.exists():
+                backup.write_bytes(path.read_bytes())
+            return dict(DEFAULTS)
 
 
 def save_config(data: dict) -> dict:
     result = validate(data)
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    fd, name = tempfile.mkstemp(prefix=".config-", suffix=".tmp", dir=CONFIG_DIR)
-    temporary = Path(name)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as stream:
-            json.dump(result, stream, ensure_ascii=False, indent=2)
-        temporary.replace(CONFIG_DIR / "config.json")
-    finally:
-        temporary.unlink(missing_ok=True)
+    with _config_lock():
+        fd, name = tempfile.mkstemp(prefix=".config-", suffix=".tmp", dir=CONFIG_DIR)
+        temporary = Path(name)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                json.dump(result, stream, ensure_ascii=False, indent=2)
+            _publish_config(temporary, CONFIG_DIR / "config.json")
+        finally:
+            temporary.unlink(missing_ok=True)
     return result

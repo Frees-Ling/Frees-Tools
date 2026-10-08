@@ -7,10 +7,22 @@ import tempfile
 from .errors import ToolError
 
 
+def same_file(left, right):
+    """Compare filesystem identity, including case aliases and hard links."""
+    left = Path(left).expanduser().resolve()
+    right = Path(right).expanduser().resolve()
+    if left == right:
+        return True
+    try:
+        return left.samefile(right)
+    except OSError:
+        return False
+
+
 @contextmanager
 def output_file(destination, sources=(), overwrite=False):
     target = Path(destination).expanduser().resolve()
-    if target in {Path(p).expanduser().resolve() for p in sources}:
+    if any(same_file(target, source) for source in sources):
         raise ToolError("输出路径不能与源文件相同。请选择新的文件名。")
     if target.exists() and not overwrite:
         raise ToolError(f"输出已存在：{target}；使用 --overwrite 明确覆盖。")
