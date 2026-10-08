@@ -1,0 +1,59 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify-build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-latest, macos-15, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.9.21'
+          python-version: '3.12'
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg aria2
+      - if: runner.os == 'macOS'
+        run: HOMEBREW_NO_AUTO_UPDATE=1 brew install ffmpeg aria2
+      - if: runner.os == 'Windows'
+        run: choco install ffmpeg aria2 -y --no-progress
+      - run: uv sync --frozen
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run pytest -q
+        env:
+          FREES_TOOLS_HOME: ${{ runner.temp }}/frees-tools-tests
+      - run: uv build
+      - run: uv run python scripts/build_release.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.os }}
+          path: |
+            dist/*.whl
+            dist/*.tar.gz
+            dist/*.zip
+            dist/*.sha256
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: verify-build
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: assets
+      - run: cat assets/*.sha256 > assets/SHA256SUMS
+      - run: gh release create "$GITHUB_REF_NAME" assets/*.whl assets/*.tar.gz assets/*.zip assets/SHA256SUMS --title "Frees Tools $GITHUB_REF_NAME" --notes-file docs/RELEASE_NOTES.md
+        env:
+          GH_TOKEN: ${{ github.token }}
